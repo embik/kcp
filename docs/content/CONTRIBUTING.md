@@ -250,25 +250,15 @@ Then, to have your test use that shared kcp server, you add `-args --use-default
 ```shell
 go test ./test/e2e/apibinding -count 20 -failfast -args --use-default-kcp-server
 ```
-## Community Roles
 
-### Reviewers
+## Governance
 
-Reviewers are responsible for reviewing code for correctness and adherence to standards. Oftentimes reviewers will
-be able to advise on code efficiency and style as it relates to golang or project conventions as well as other considerations
-that might not be obvious to the contributor.
+The kcp project is governed by a set of values and rules that are available [in the repository](https://github.com/kcp-dev/kcp/blob/main/GOVERNANCE.md).
 
-### Approvers
+All technical decisions should be guided by the manifesto as given in the governance document:
 
-Approvers are responsible for sign-off on the acceptance of the contribution. In essence, approval indicates that the
-change is desired and good for the project, aligns with code, api, and system conventions, and appears to follow all required
-process including adequate testing, documentation, follow ups, or notifications to other areas who might be interested
-or affected by the change.
-
-Approvers are also reviewers.
-
-### Management of `OWNERS` files
-
-If a reviewer or approver no longer wishes to be in their current role it is requested that a PR
-be opened to update the `OWNERS` file. `OWNERS` files may be periodically reviewed and updated based on project activity
-or feedback to ensure an acceptable contributor experience is maintained.
+> kcp maintainers strive to be good citizens in the Kubernetes project.
+> kcp maintainers see kcp always as part of the Kubernetes ecosystem and always strive to keep that ecosystem united. In particular, this means:
+> - kcp strives to not divert from Kubernetes, but strives to extend its use-cases to non-container control planes while keeping the ecosystems of libraries and tooling united.
+> - kcp – as a consumer of Kubernetes API Machinery – will strive to stay 100% compatible with the semantics of Kubernetes APIs, while removing container orchestration specific functionality.
+> - kcp strives to upstream changes to Kubernetes code as much as possible.

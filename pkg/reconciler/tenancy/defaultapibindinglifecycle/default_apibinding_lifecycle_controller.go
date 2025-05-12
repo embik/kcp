@@ -41,10 +41,13 @@ import (
 	admission "github.com/kcp-dev/kcp/pkg/admission/workspacetypeexists"
 	"github.com/kcp-dev/kcp/pkg/indexers"
 	"github.com/kcp-dev/kcp/pkg/logging"
+	"github.com/kcp-dev/kcp/pkg/reconciler/committer"
 	apisv1alpha1 "github.com/kcp-dev/kcp/sdk/apis/apis/v1alpha1"
 	corev1alpha1 "github.com/kcp-dev/kcp/sdk/apis/core/v1alpha1"
 	tenancyv1alpha1 "github.com/kcp-dev/kcp/sdk/apis/tenancy/v1alpha1"
 	kcpclientset "github.com/kcp-dev/kcp/sdk/client/clientset/versioned/cluster"
+	apisv1alpha1client "github.com/kcp-dev/kcp/sdk/client/clientset/versioned/typed/apis/v1alpha1"
+	corev1alpha1client "github.com/kcp-dev/kcp/sdk/client/clientset/versioned/typed/core/v1alpha1"
 	apisv1alpha1informers "github.com/kcp-dev/kcp/sdk/client/informers/externalversions/apis/v1alpha1"
 	corev1alpha1informers "github.com/kcp-dev/kcp/sdk/client/informers/externalversions/core/v1alpha1"
 	tenancyv1alpha1informers "github.com/kcp-dev/kcp/sdk/client/informers/externalversions/tenancy/v1alpha1"
@@ -96,13 +99,13 @@ func NewDefaultAPIBindingController(
 		createAPIBinding: func(ctx context.Context, clusterName logicalcluster.Path, binding *apisv1alpha1.APIBinding) (*apisv1alpha1.APIBinding, error) {
 			return kcpClusterClient.Cluster(clusterName).ApisV1alpha1().APIBindings().Create(ctx, binding, metav1.CreateOptions{})
 		},
-		updateAPIBinding: func(ctx context.Context, clusterName logicalcluster.Path, binding *apisv1alpha1.APIBinding) (*apisv1alpha1.APIBinding, error) {
-			return kcpClusterClient.Cluster(clusterName).ApisV1alpha1().APIBindings().Update(ctx, binding, metav1.UpdateOptions{})
-		},
 
 		getAPIExport: func(path logicalcluster.Path, name string) (*apisv1alpha1.APIExport, error) {
 			return indexers.ByPathAndNameWithFallback[*apisv1alpha1.APIExport](apisv1alpha1.Resource("apiexports"), apiExportsInformer.Informer().GetIndexer(), globalAPIExportsInformer.Informer().GetIndexer(), path, name)
 		},
+
+		commitApiBinding:     committer.NewCommitter[*apisv1alpha1.APIBinding, apisv1alpha1client.APIBindingInterface, *apisv1alpha1.APIBindingSpec, *apisv1alpha1.APIBindingStatus](kcpClusterClient.ApisV1alpha1().APIBindings()),
+		commitLogicalCluster: committer.NewCommitter[*corev1alpha1.LogicalCluster, corev1alpha1client.LogicalClusterInterface, *corev1alpha1.LogicalClusterSpec, *corev1alpha1.LogicalClusterStatus](kcpClusterClient.CoreV1alpha1().LogicalClusters()),
 	}
 
 	c.transitiveTypeResolver = admission.NewTransitiveTypeResolver(c.getWorkspaceType)
@@ -129,6 +132,9 @@ func NewDefaultAPIBindingController(
 	return c, nil
 }
 
+type apiBindingResource = committer.Resource[*apisv1alpha1.APIBindingSpec, *apisv1alpha1.APIBindingStatus]
+type logicalClusterResource = committer.Resource[*corev1alpha1.LogicalClusterSpec, *corev1alpha1.LogicalClusterStatus]
+
 // DefaultAPIBindingController is a controller which instantiates APIBindings and waits for them to be fully bound
 // in new Workspaces.
 type DefaultAPIBindingController struct {
@@ -141,9 +147,10 @@ type DefaultAPIBindingController struct {
 	listAPIBindings  func(clusterName logicalcluster.Name) ([]*apisv1alpha1.APIBinding, error)
 	getAPIBinding    func(clusterName logicalcluster.Name, name string) (*apisv1alpha1.APIBinding, error)
 	createAPIBinding func(ctx context.Context, clusterName logicalcluster.Path, binding *apisv1alpha1.APIBinding) (*apisv1alpha1.APIBinding, error)
-	updateAPIBinding func(ctx context.Context, clusterName logicalcluster.Path, binding *apisv1alpha1.APIBinding) (*apisv1alpha1.APIBinding, error)
+	getAPIExport     func(clusterName logicalcluster.Path, name string) (*apisv1alpha1.APIExport, error)
 
-	getAPIExport func(clusterName logicalcluster.Path, name string) (*apisv1alpha1.APIExport, error)
+	commitApiBinding     func(ctx context.Context, old, new *apiBindingResource) error
+	commitLogicalCluster func(ctx context.Context, old, new *logicalClusterResource) error
 
 	transitiveTypeResolver transitiveTypeResolver
 }
@@ -278,6 +285,7 @@ func (c *DefaultAPIBindingController) process(ctx context.Context, key string) e
 		return nil // nothing we can do here
 	}
 
+	old := logicalCluster
 	logicalCluster = logicalCluster.DeepCopy()
 
 	logger = logging.WithObject(logger, logicalCluster)
@@ -286,6 +294,13 @@ func (c *DefaultAPIBindingController) process(ctx context.Context, key string) e
 	var errs []error
 	err = c.reconcile(ctx, logicalCluster)
 	if err != nil {
+		errs = append(errs, err)
+	}
+
+	// If the object being reconciled changed as a result, update it.
+	oldResource := &logicalClusterResource{ObjectMeta: old.ObjectMeta, Spec: &old.Spec, Status: &old.Status}
+	newResource := &logicalClusterResource{ObjectMeta: logicalCluster.ObjectMeta, Spec: &logicalCluster.Spec, Status: &logicalCluster.Status}
+	if err := c.commitLogicalCluster(ctx, oldResource, newResource); err != nil {
 		errs = append(errs, err)
 	}
 

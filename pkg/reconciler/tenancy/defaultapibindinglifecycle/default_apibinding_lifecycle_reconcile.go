@@ -122,16 +122,11 @@ func (c *DefaultAPIBindingController) reconcile(ctx context.Context, logicalClus
 			apiBindingName := initialization.GenerateAPIBindingName(clusterName, exportRef.Path, exportRef.Export)
 			logger = logger.WithValues("apiBindingName", apiBindingName)
 
-			apiBinding := &apisv1alpha1.APIBinding{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: apiBindingName,
-				},
-				Spec: apisv1alpha1.APIBindingSpec{
-					Reference: apisv1alpha1.BindingReference{
-						Export: &apisv1alpha1.ExportBindingReference{
-							Path: exportRef.Path,
-							Name: apiExport.Name,
-						},
+			apiBindingSpec := apisv1alpha1.APIBindingSpec{
+				Reference: apisv1alpha1.BindingReference{
+					Export: &apisv1alpha1.ExportBindingReference{
+						Path: exportRef.Path,
+						Name: apiExport.Name,
 					},
 				},
 			}
@@ -143,26 +138,31 @@ func (c *DefaultAPIBindingController) reconcile(ctx context.Context, logicalClus
 					State:           apisv1alpha1.ClaimAccepted,
 				}
 
-				apiBinding.Spec.PermissionClaims = append(apiBinding.Spec.PermissionClaims, acceptedClaim)
+				apiBindingSpec.PermissionClaims = append(apiBindingSpec.PermissionClaims, acceptedClaim)
 			}
 
-			logger = logging.WithObject(logger, apiBinding)
-
-			existingBinding, err := c.getAPIBinding(clusterName, apiBinding.Name)
+			existingBinding, err := c.getAPIBinding(clusterName, apiBindingName)
 			if err != nil {
 				if !apierrors.IsNotFound(err) {
 					errors = append(errors, err)
 					continue
 				}
-				if _, err := c.createAPIBinding(ctx, clusterName.Path(), apiBinding); err != nil {
+				if _, err := c.createAPIBinding(ctx, clusterName.Path(), &apisv1alpha1.APIBinding{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: apiBindingName,
+					},
+					Spec: apiBindingSpec,
+				}); err != nil {
 					errors = append(errors, err)
 					continue
 				}
 				logger.V(2).Info("created APIBinding")
 			} else {
-				// TODO: Overwrite everything?
-				apiBinding.SetResourceVersion(existingBinding.ResourceVersion)
-				if _, err := c.updateAPIBinding(ctx, clusterName.Path(), apiBinding); err != nil {
+				apiBinding := existingBinding.DeepCopy()
+				apiBinding.Spec = apiBindingSpec
+				oldResource := &apiBindingResource{ObjectMeta: existingBinding.ObjectMeta, Spec: &existingBinding.Spec, Status: &existingBinding.Status}
+				newResource := &apiBindingResource{ObjectMeta: apiBinding.ObjectMeta, Spec: &apiBinding.Spec, Status: &existingBinding.Status}
+				if err := c.commitApiBinding(ctx, oldResource, newResource); err != nil {
 					errors = append(errors, err)
 					continue
 				}

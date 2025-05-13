@@ -92,7 +92,7 @@ func (c *DefaultAPIBindingController) reconcile(ctx context.Context, logicalClus
 	someExportsMissing := false
 
 	for _, wt := range wts {
-		if ptr.Deref(wt.Spec.DefaultAPIBindingLifecycle, tenancyv1alpha1.APIBindingLifecycleModeMaintain) != tenancyv1alpha1.APIBindingLifecycleModeMaintain {
+		if ptr.Deref(wt.Spec.DefaultAPIBindingLifecycle, tenancyv1alpha1.APIBindingLifecycleModeInitializeOnly) != tenancyv1alpha1.APIBindingLifecycleModeMaintain {
 			continue
 		}
 
